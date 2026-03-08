@@ -13,17 +13,17 @@ All charge points and site entities are **automatically discovered** based on th
 
 | Feature | Description |
 |---|---|
-| 🔍 **Auto-discovery** | Automatically detects all charge points and site entities — zero manual configuration |
+| ☀️ **Site overview** | PV power bar split across home/charging/battery/feed-in, individual PV strings, live In/Out table |
 | ⚡ **Charge mode control** | Switch between `Off`, `PV`, `Min+PV` and `Now` with a single tap |
+| 🏠 **Home battery block** | Buffer SoC, priority SoC and discharge lock with inline sliders |
+| 📑 **Compact mode** | Tab-based layout grouping controls, settings, plan and session — ideal for space-constrained dashboards |
+| 📋 **Plan mode** | Minimalist mode showing only the charge plan — ideal for dedicated dashboard pages |
+| 📅 **Charge planning** | Select vehicle, set target time & SoC, activate and delete plans |
+| 📊 **Session overview** | Energy, cost, duration and phases of the current charging session |
+| 🔍 **Auto-discovery** | Automatically detects all charge points and site entities — zero manual configuration |
 | 🔋 **SoC display** | Vehicle state of charge as a progress bar with percentage and estimated range |
 | 🎚️ **Slider controls** | Adjust Target SoC, Min SoC, Priority, Max current and Min current inline |
 | 🔌 **Phase switching** | Auto / 1-phase / 3-phase control built in |
-| 📅 **Charge planning** | Select vehicle, set target time & SoC, activate and delete plans |
-| 📊 **Session overview** | Energy, cost, duration and phases of the current charging session |
-| 🏠 **Home battery block** | Buffer SoC, priority SoC and discharge lock with inline sliders |
-| ☀️ **Site overview** | PV power bar split across home/charging/battery/feed-in, individual PV strings, live In/Out table |
-| 📋 **Plan mode** | Minimalist mode showing only the charge plan — ideal for dedicated dashboard pages |
-| 📑 **Compact mode** | Tab-based layout grouping controls, settings, plan and session — ideal for space-constrained dashboards |
 | 🌍 **Multi-language** | German, English and Spanish — auto-detected from HA language setting, easily extensible |
 | 🔄 **Live updates** | Power, SoC and status update in real time without full re-render |
 | 🎛️ **Filtering** | Select specific charge points via `loadpoints` config |
@@ -75,75 +75,11 @@ type: module
 
 ---
 
-## Configuration
+## Configuration & Modes
 
-Add the card to any Lovelace dashboard using the YAML editor:
+Add the card to any Lovelace dashboard using the YAML editor. The `mode` option controls what the card displays.
 
-### Charge point card (default)
-
-Shows all discovered charge points. Optionally filter to specific ones:
-
-```yaml
-type: custom:evcc-card
-```
-
-```yaml
-type: custom:evcc-card
-loadpoints:
-  - openwb          # show only specific charge points by name
-  - wallbox-garage
-```
-
-### Home battery block
-
-```yaml
-type: custom:evcc-card
-mode: battery
-```
-
-### Site overview
-
-```yaml
-type: custom:evcc-card
-mode: site
-```
-
-### Charge planning
-
-```yaml
-type: custom:evcc-card
-mode: plan
-loadpoints:
-  - openwb
-```
-
-### Compact view
-
-Same content as the default charge point view, but organized into four tabs to save vertical space:
-
-```yaml
-type: custom:evcc-card
-mode: compact
-```
-
-```yaml
-type: custom:evcc-card
-mode: compact
-loadpoints:
-  - openwb          # show only specific charge points by name
-  - wallbox-garage
-```
-
-### Override language
-
-```yaml
-type: custom:evcc-card
-language: en   # or: de, es
-```
-
----
-
-## Configuration options
+### Configuration options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -153,8 +89,6 @@ language: en   # or: de, es
 | `no_plan` | `list` | *(none)* | Hide charge plan block for specific charge points |
 
 ---
-
-## Modes
 
 ### `loadpoint` (default)
 
@@ -167,6 +101,40 @@ The main charge point view. For each discovered charge point it shows:
 - Phase switch: Auto / 1-phase / 3-phase
 - Charge plan block
 
+```yaml
+type: custom:evcc-card
+```
+
+```yaml
+type: custom:evcc-card
+loadpoints:
+  - openwb          # show only specific charge points by name
+  - wallbox-garage
+```
+
+![Loadpoint block](images/chargepoint.png)
+
+---
+
+### `site`
+
+Full site energy overview:
+
+- PV production bar split into: home consumption / charging / battery / feed-in
+- Individual PV string values (e.g. BKW, Dach) shown as indented sub-rows
+- Live power table with IN/OUT sections: Grid import/export, PV generation, home consumption, charging, battery
+- Battery SoC shown inline in the charging/discharging row (e.g. `Battery charging – 47 %`)
+- Active charge points shown as indented sub-rows under the charging row, including vehicle SoC or temperature
+
+```yaml
+type: custom:evcc-card
+mode: site
+```
+
+![Site overview](images/site.png)
+
+---
+
 ### `battery`
 
 Home battery management block:
@@ -176,13 +144,14 @@ Home battery management block:
 - Priority SoC slider
 - Discharge lock toggle
 
-### `site`
+```yaml
+type: custom:evcc-card
+mode: battery
+```
 
-Full site energy overview:
+![Battery block](images/battery.png)
 
-- PV production bar split into: home consumption / charging / battery / feed-in
-- Individual PV string values
-- Live power table: Grid In/Out, PV, Home, Charging, Battery
+---
 
 ### `plan`
 
@@ -192,6 +161,17 @@ Minimalist charge plan view:
 - Target time picker
 - Target SoC slider
 - Activate / delete plan
+
+```yaml
+type: custom:evcc-card
+mode: plan
+loadpoints:
+  - openwb
+```
+
+![Plan block](images/plan.png)
+
+---
 
 ### `compact`
 
@@ -206,15 +186,51 @@ Same content as `loadpoint`, but organized into four tabs — ideal for dashboar
 
 The selected tab is remembered per charge point across re-renders.
 
+```yaml
+type: custom:evcc-card
+mode: compact
+```
+
+```yaml
+type: custom:evcc-card
+mode: compact
+loadpoints:
+  - openwb          # show only specific charge points by name
+  - wallbox-garage
+```
+
+![Compact mode](images/compact.png)
+
 ---
 
-## Screenshots
+### Override language
 
-![Loadpoint block](images/chargepoint.png)
-![Compact mode](images/compact.png)
-![Site overview](images/site.png)
-![Battery block](images/battery.png)
-![Plan block](images/plan.png)
+```yaml
+type: custom:evcc-card
+language: en   # or: de, es
+```
+
+---
+
+## Icons
+
+All icons throughout the card use inline [Material Design Icons](https://pictogrammers.com/library/mdi/) (MDI) rendered as embedded SVG paths — no external icon font, no `ha-icon` dependency, no `foreignObject`. This ensures correct rendering in all HA themes and browsers.
+
+Key icon assignments:
+
+| Element | Icon |
+|---|---|
+| PV generation | `mdi:white-balance-sunny` |
+| PV sub-source (string) | `mdi:solar-panel` |
+| Battery | `mdi:battery-charging-50` |
+| Grid import / export | `mdi:transmission-tower` |
+| Home consumption | `mdi:home` |
+| Charge point | `mdi:ev-station` |
+| Heat pump (°C loadpoint) | `mdi:thermometer-low` |
+| Mode: Off | `mdi:power` |
+| Mode: PV | `mdi:white-balance-sunny` |
+| Mode: Min+PV | `mdi:lightning-bolt` &amp; `mdi:white-balance-sunny` (combined) |
+| Mode: Now | `mdi:lightning-bolt` |
 
 ---
 

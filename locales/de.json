@@ -52,5 +52,9 @@
   "noLoadpoints": "Keine Ladepunkte gefunden.",
   "availableLoadpoints": "Verfügbare Ladepunkte: {list}",
   "phasesSingle": "1-phasig",
-  "phasesTriple": "3-phasig"
+  "phasesTriple": "3-phasig",
+  "tabControl": "Steuerung",
+  "tabSettings": "Einstellungen",
+  "tabPlan": "Plan",
+  "tabSession": "Session"
 }

@@ -187,6 +187,7 @@ class EvccCard extends HTMLElement {
     this._renderTimer   = null;
     this._lastRenderKey = null;
     this._planState     = {};
+    this._tabState      = {};        // { [lpName]: 0|1|2|3 } — aktiver Tab pro Ladepunkt
     this._translations  = {};        // { de: {...}, en: {...} }
     this._translationsReady = false;
 
@@ -318,8 +319,11 @@ class EvccCard extends HTMLElement {
 
     const { loadpoints, site } = discoverEntities(this._hass);
 
-    const filter = this._config.loadpoints;
-    const visible = filter && Array.isArray(filter) && filter.length > 0
+    const filterRaw = this._config.loadpoints;
+    const filter = filterRaw
+      ? (Array.isArray(filterRaw) ? filterRaw : [filterRaw])
+      : null;
+    const visible = filter && filter.length > 0
       ? Object.fromEntries(
           Object.entries(loadpoints).filter(([lp]) => filter.includes(lp))
         )
@@ -335,7 +339,13 @@ class EvccCard extends HTMLElement {
               ? this._renderSiteBlock(site, loadpoints)
               : this._config.mode === "plan"
                 ? this._renderPlanMode(visible)
-                : Object.keys(visible).length === 0
+                : this._config.mode === "compact"
+                  ? (Object.keys(visible).length === 0
+                      ? this._renderEmpty(loadpoints)
+                      : Object.entries(visible)
+                          .map(([lp, ents]) => this._renderCompactLoadpoint(lp, ents))
+                          .join(""))
+                  : Object.keys(visible).length === 0
               ? this._renderEmpty(loadpoints)
               : Object.entries(visible)
                   .map(([lp, ents]) => this._renderLoadpoint(lp, ents))
@@ -395,6 +405,75 @@ class EvccCard extends HTMLElement {
         ${this._renderToggles(ents)}
         ${noPlan ? "" : this._renderPlanBlock(lpName, ents)}
         ${this._renderSessionInfo(ents)}
+      </div>
+    `;
+  }
+
+  // ── Compact-Loadpoint ─────────────────────────────────────────────────────
+
+  _renderCompactLoadpoint(lpName, ents) {
+    const charging    = ents.charging  ? isOn(this._hass, ents.charging)  : false;
+    const connected   = ents.connected ? isOn(this._hass, ents.connected) : false;
+    const statusLabel = charging ? this._t("charging") : connected ? this._t("connected") : this._t("ready");
+    const statusColor = charging ? "#22c55e" : connected ? "#3b82f6" : "#6b7280";
+    const noPlan      = Array.isArray(this._config.no_plan) && this._config.no_plan.includes(lpName);
+
+    // Aktiver Tab: 0=Steuerung, 1=Einstellungen, 2=Plan, 3=Session
+    // Standard: 0 — bei laufender Ladung Tab mit Steuerung zeigen
+    if (this._tabState[lpName] === undefined) this._tabState[lpName] = 0;
+    const activeTab = this._tabState[lpName];
+
+    const tabs = [
+      { key: "tabControl",  icon: "⚡" },
+      { key: "tabSettings", icon: "🎚️" },
+      { key: "tabPlan",     icon: "📅" },
+      { key: "tabSession",  icon: "📊" },
+    ];
+
+    const tabBar = `
+      <div class="compact-tabs">
+        ${tabs.map((tab, i) => `
+          <button class="compact-tab ${activeTab === i ? "active" : ""}"
+                  data-lp="${lpName}" data-tab="${i}">
+            <span class="compact-tab-icon">${tab.icon}</span>
+            <span class="compact-tab-label">${this._t(tab.key)}</span>
+          </button>
+        `).join("")}
+      </div>`;
+
+    const tabContent = [
+      // Tab 0 — Steuerung
+      `<div class="compact-panel" ${activeTab !== 0 ? 'hidden' : ''}>
+        ${this._renderModeSelector(ents)}
+        ${this._renderSocBar(ents, charging)}
+        ${this._renderPowerRow(ents, charging)}
+      </div>`,
+      // Tab 1 — Einstellungen
+      `<div class="compact-panel" ${activeTab !== 1 ? 'hidden' : ''}>
+        ${this._renderSliders(ents)}
+        ${this._renderCurrentBlock(ents)}
+        ${this._renderToggles(ents)}
+      </div>`,
+      // Tab 2 — Plan
+      `<div class="compact-panel" ${activeTab !== 2 ? 'hidden' : ''}>
+        ${noPlan ? "" : this._renderPlanBlock(lpName, ents)}
+      </div>`,
+      // Tab 3 — Session
+      `<div class="compact-panel" ${activeTab !== 3 ? 'hidden' : ''}>
+        ${this._renderSessionInfo(ents)}
+      </div>`,
+    ].join("");
+
+    return `
+      <div class="loadpoint" data-lp-compact="${lpName}">
+        <div class="lp-header">
+          <span class="lp-name">${lpName}</span>
+          <span class="lp-badge" style="background:${statusColor}22;color:${statusColor}">
+            ${statusLabel}
+          </span>
+        </div>
+        ${tabBar}
+        ${tabContent}
       </div>
     `;
   }
@@ -1156,10 +1235,23 @@ class EvccCard extends HTMLElement {
   // ── Event-Listener ────────────────────────────────────────────────────────
 
   _attachListeners() {
+    // Compact-Tabs
+    this.shadowRoot.querySelectorAll("button.compact-tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const lpName   = btn.dataset.lp;
+        const tabIdx   = parseInt(btn.dataset.tab);
+        this._tabState[lpName] = tabIdx;
+
+        const block = btn.closest("[data-lp-compact]");
+        block.querySelectorAll("button.compact-tab").forEach((b, i) =>
+          b.classList.toggle("active", i === tabIdx));
+        block.querySelectorAll(".compact-panel").forEach((p, i) =>
+          i === tabIdx ? p.removeAttribute("hidden") : p.setAttribute("hidden", ""));
+      });
+    });
+
     this.shadowRoot.querySelectorAll("button.batt-tab").forEach(btn => {
       btn.addEventListener("click", () => {
-        const tabIdx = parseInt(btn.dataset.tab);
-        const block  = btn.closest(".battery-block");
         block.querySelectorAll("button.batt-tab").forEach((b, i) =>
           b.classList.toggle("active", i === tabIdx));
         block.querySelectorAll(".batt-tab-content").forEach((c, i) =>
@@ -1636,6 +1728,40 @@ class EvccCard extends HTMLElement {
 
       .empty { text-align: center; padding: 24px; color: var(--secondary-text-color); font-size: .9rem; line-height: 1.8; }
       .empty code { background: var(--code-editor-background-color, #1e1e1e); color: var(--primary-color); padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
+
+      /* ── Compact-Tabs ── */
+      .compact-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--divider-color, #e5e7eb);
+        padding-bottom: 0;
+      }
+      .compact-tab {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 6px 4px 8px;
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--secondary-text-color);
+        cursor: pointer;
+        font-size: .68rem;
+        margin-bottom: -1px;
+        transition: color .15s, border-color .15s;
+      }
+      .compact-tab:hover { color: var(--primary-text-color); }
+      .compact-tab.active {
+        color: var(--primary-color);
+        border-bottom-color: var(--primary-color);
+        font-weight: 600;
+      }
+      .compact-tab-icon  { font-size: 1rem; line-height: 1; }
+      .compact-tab-label { font-size: .68rem; }
+      .compact-panel[hidden] { display: none; }
     `;
   }
 }

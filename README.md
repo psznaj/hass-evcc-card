@@ -23,6 +23,7 @@ All charge points and site entities are **automatically discovered** based on th
 | 🏠 **Home battery block** | Buffer SoC, priority SoC and discharge lock with inline sliders |
 | ☀️ **Site overview** | PV power bar split across home/charging/battery/feed-in, individual PV strings, live In/Out table |
 | 📋 **Plan mode** | Minimalist mode showing only the charge plan — ideal for dedicated dashboard pages |
+| 📑 **Compact mode** | Tab-based layout grouping controls, settings, plan and session — ideal for space-constrained dashboards |
 | 🌍 **Multi-language** | German, English and Spanish — auto-detected from HA language setting, easily extensible |
 | 🔄 **Live updates** | Power, SoC and status update in real time without full re-render |
 | 🎛️ **Filtering** | Select specific charge points via `loadpoints` config |
@@ -116,6 +117,23 @@ loadpoints:
   - openwb
 ```
 
+### Compact view
+
+Same content as the default charge point view, but organized into four tabs to save vertical space:
+
+```yaml
+type: custom:evcc-card
+mode: compact
+```
+
+```yaml
+type: custom:evcc-card
+mode: compact
+loadpoints:
+  - openwb          # show only specific charge points by name
+  - wallbox-garage
+```
+
 ### Override language
 
 ```yaml
@@ -129,7 +147,7 @@ language: en   # or: de, es
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `mode` | `string` | `loadpoint` | Card mode: `loadpoint`, `battery`, `site`, `plan` |
+| `mode` | `string` | `loadpoint` | Card mode: `loadpoint`, `compact`, `battery`, `site`, `plan` |
 | `loadpoints` | `list` | *(all)* | Filter charge points by name |
 | `language` | `string` | *(auto)* | Override UI language: `en`, `de`, `es` |
 | `no_plan` | `list` | *(none)* | Hide charge plan block for specific charge points |
@@ -175,11 +193,25 @@ Minimalist charge plan view:
 - Target SoC slider
 - Activate / delete plan
 
+### `compact`
+
+Same content as `loadpoint`, but organized into four tabs — ideal for dashboards where vertical space is limited or multiple charge points are shown side by side:
+
+| Tab | Contents |
+|---|---|
+| ⚡ **Control** | Charge mode buttons, vehicle SoC bar, current charging power |
+| 🎚️ **Settings** | Target SoC, Min SoC, Priority sliders, current limits, phase switch |
+| 📅 **Plan** | Charge plan: vehicle selector, target time, target SoC, activate/delete |
+| 📊 **Session** | Energy, cost, duration and phases of the current session |
+
+The selected tab is remembered per charge point across re-renders.
+
 ---
 
 ## Screenshots
 
 ![Loadpoint block](images/chargepoint.png)
+![Compact mode](images/compact.png)
 ![Site overview](images/site.png)
 ![Battery block](images/battery.png)
 ![Plan block](images/plan.png)

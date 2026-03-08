@@ -52,5 +52,9 @@
   "noLoadpoints": "No se encontraron puntos de carga.",
   "availableLoadpoints": "Puntos de carga disponibles: {list}",
   "phasesSingle": "Monofásico",
-  "phasesTriple": "Trifásico"
+  "phasesTriple": "Trifásico",
+  "tabControl": "Control",
+  "tabSettings": "Ajustes",
+  "tabPlan": "Plan",
+  "tabSession": "Sesión"
 }

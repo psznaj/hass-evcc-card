@@ -52,5 +52,9 @@
   "noLoadpoints": "No charge points found.",
   "availableLoadpoints": "Available charge points: {list}",
   "phasesSingle": "1-phase",
-  "phasesTriple": "3-phase"
+  "phasesTriple": "3-phase",
+  "tabControl": "Control",
+  "tabSettings": "Settings",
+  "tabPlan": "Plan",
+  "tabSession": "Session"
 }

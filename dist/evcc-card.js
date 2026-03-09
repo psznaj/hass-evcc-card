@@ -155,6 +155,11 @@ function unitStr(hass, entityId) {
   return attr(hass, entityId, "unit_of_measurement") ?? "";
 }
 
+function displayUnit(hass, entityId) {
+  const rawUnit = unitStr(hass, entityId);
+  return rawUnit || (entityId.includes("soc") ? "%" : "");
+}
+
 function isOn(hass, entityId) {
   const s = stateVal(hass, entityId);
   return s === "on" || s === "true";
@@ -197,7 +202,7 @@ class EvccCard extends HTMLElement {
   async _loadTranslations() {
     const base = new URL("locales/", import.meta.url).href;
 
-    let langs = ["de", "en"];
+    let langs = ["en"];
     try {
       const idxResp = await fetch(`${base}index.json`);
       if (idxResp.ok) langs = await idxResp.json();
@@ -249,7 +254,7 @@ class EvccCard extends HTMLElement {
       const slug = id.split(".")[1] ?? "";
       return slug.startsWith("evcc_");
     });
-    const lang = this._config.language || (hass.language ?? "de");
+    const lang = this._config.language || (hass.language ?? "en");
     return lang + "|" + evccIds.map(id => `${id}=${hass.states[id]?.state}`).join("|");
   }
 
@@ -281,18 +286,16 @@ class EvccCard extends HTMLElement {
   }
 
   _tInline(key) {
-    const lang = (this._config.language
-      || (this._hass?.language ?? "de")).split("-")[0].toLowerCase();
     const map = {
-      siteCollapse: { de: "Einklappen", en: "Collapse" },
-      siteExpand:   { de: "Ausklappen", en: "Expand" },
+      siteCollapse: "Collapse",
+      siteExpand:   "Expand",
     };
-    return (map[key]?.[lang]) ?? (map[key]?.["en"]) ?? key;
+    return map[key] ?? key;
   }
 
   _t(key, replacements = {}) {
     const lang = (this._config.language
-      || (this._hass?.language ?? "de")).split("-")[0].toLowerCase();
+      || (this._hass?.language ?? "en")).split("-")[0].toLowerCase();
 
     const strings = this._translations[lang]
       || this._translations["en"]
@@ -596,7 +599,7 @@ class EvccCard extends HTMLElement {
           <span class="block-title">${this._t("chargeCurrent")}</span>
           <button class="current-toggle-btn ${expanded ? "active" : ""}"
                   data-lp-current-toggle="${lpName}"
-                  title="${expanded ? (this._t("hideSettings") || "Ausblenden") : (this._t("showSettings") || "Einblenden")}">
+                  title="${expanded ? "Hide settings" : "Show settings"}">
             ${gearIcon}
           </button>
         </div>
@@ -610,8 +613,7 @@ class EvccCard extends HTMLElement {
   _sliderRow(entityId, label) {
     const domain  = entityId.split(".")[0];
     const val     = parseFloat(stateVal(this._hass, entityId)) || 0;
-    const rawUnit = unitStr(this._hass, entityId);
-    const unit    = rawUnit || (entityId.includes("soc") ? "%" : "");
+    const unit    = displayUnit(this._hass, entityId);
     let min, max, step;
 
     if (domain === "select") {
@@ -672,10 +674,10 @@ class EvccCard extends HTMLElement {
       const max      = pctOpts[pctOpts.length - 1] ?? 100;
       const step     = pctOpts.length > 1 ? (pctOpts[1] - pctOpts[0]) : 5;
       const curPct   = (!current || current === "unknown") ? 100 : parseInt(current);
-      const label    = curPct === 100 ? "AUS" : curPct === 0 ? "0 % (Vollentladung)" : `${curPct} %`;
+      const label    = curPct === 100 ? "Off" : curPct === 0 ? "0 % (full discharge)" : `${curPct} %`;
       return `
         <div class="slider-row">
-          <label>Batterie-Boost</label>
+          <label>Battery boost</label>
           <div class="slider-control">
             <input type="range"
                    min="${min}" max="${max}" step="${step}" value="${curPct}"
@@ -703,7 +705,7 @@ class EvccCard extends HTMLElement {
                     data-entity="${entityId}"
                     data-domain="${domain}"
                     data-on="${on}">
-              ${on ? "AN" : "AUS"}
+              ${on ? "On" : "Off"}
             </button>
           </div>
         `;
@@ -813,7 +815,7 @@ class EvccCard extends HTMLElement {
     const fmtDt = (iso) => {
       if (!iso || iso === "unknown" || iso === "unavailable") return null;
       try {
-        return new Date(iso).toLocaleString("de-DE", {
+        return new Date(iso).toLocaleString(this._config.language || this._hass?.language || "en", {
           weekday: "short", day: "2-digit", month: "2-digit",
           hour: "2-digit", minute: "2-digit"
         });
@@ -832,7 +834,7 @@ class EvccCard extends HTMLElement {
     const projectionHtml = (startStr || endStr) ? `
       <div class="plan-projection">
         ${startStr ? `<span style="display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M16.06,3.5L17.5,2.08L18.92,3.5L17.5,4.92L16.06,3.5M7.06,3.5L5.64,2.08L4.22,3.5L5.64,4.92L7.06,3.5M12,6A4,4 0 0,1 16,10V16H13V22H11V16H8V10A4,4 0 0,1 12,6Z"/></svg> Start: <strong>${startStr}</strong></span>` : ""}
-        ${endStr   ? `<span>✅ Ende: <strong>${endStr}</strong></span>`    : ""}
+        ${endStr   ? `<span>✅ End: <strong>${endStr}</strong></span>`      : ""}
       </div>` : "";
 
     return `
@@ -1336,7 +1338,7 @@ class EvccCard extends HTMLElement {
       <div class="batt-info-col">
         <div class="batt-info-label">${this._t("battLevel")}</div>
         <div class="batt-info-pct" style="color:${socColor}">${Math.round(soc)} %</div>
-        ${cap ? `<div class="batt-info-kwh">${(soc/100*cap).toFixed(1)} kWh von ${cap} kWh</div>` : ""}
+        ${cap ? `<div class="batt-info-kwh">${(soc/100*cap).toFixed(1)} kWh / ${cap} kWh</div>` : ""}
         ${powerStr ? `<div class="batt-info-power">${powerStr}</div>` : ""}
       </div>`;
 
@@ -1556,9 +1558,9 @@ class EvccCard extends HTMLElement {
         const display = input.nextElementSibling;
         if (!display) return;
         if (input.dataset.boostType === "switch") {
-          display.textContent = val >= 50 ? "AN" : "AUS";
+          display.textContent = val >= 50 ? "On" : "Off";
         } else {
-          display.textContent = val === 100 ? "AUS" : val === 0 ? "0 % (Vollentladung)" : `${val} %`;
+          display.textContent = val === 100 ? "Off" : val === 0 ? "0 % (full discharge)" : `${val} %`;
         }
       });
       input.addEventListener("pointerup",  () => this._boostCommit(input));
@@ -1661,7 +1663,7 @@ class EvccCard extends HTMLElement {
             showSuccess();
             return;
           } catch(e) { lastErr = e; }
-          showError(`❌ ${lastErr?.message || JSON.stringify(lastErr) || "Unbekannter Fehler"}`);
+          showError(`❌ ${lastErr?.message || JSON.stringify(lastErr) || "Unknown error"}`);
         };
         tryServices();
       });
@@ -1695,7 +1697,7 @@ class EvccCard extends HTMLElement {
       });
       input.addEventListener("input", () => {
         const span = input.nextElementSibling;
-        if (span) span.textContent = `${input.value} ${unitStr(this._hass, input.dataset.entity)}`;
+        if (span) span.textContent = `${input.value} ${displayUnit(this._hass, input.dataset.entity)}`;
       });
       input.addEventListener("pointerup", () => {
         this._isDragging = false;
@@ -2010,7 +2012,7 @@ window.__evccCards = window.__evccCards || new Map();
       res_type: myRes.type || "module",
       url:    expectedUrl,
     });
-    console.info(`[evcc-card] Cache-URL aktualisiert → ${expectedUrl}. Seite wird neu geladen.`);
+    console.info(`[evcc-card] Cache URL updated -> ${expectedUrl}. Reloading page.`);
     setTimeout(() => location.reload(), 500);
   } catch (e) {
   }

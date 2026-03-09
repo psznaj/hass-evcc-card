@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 <!-- LANGUAGES_START -->
-![Supported languages](https://img.shields.io/badge/languages-de%20%7C%20en%20%7C%20es%20%7C%20fr%20%7C%20hr%20%7C%20nl%20%7C%20pt-blue)
+![Supported languages](https://img.shields.io/badge/languages-de%20%7C%20en%20%7C%20es%20%7C%20fr%20%7C%20hr%20%7C%20nl%20%7C%20pl%20%7C%20pt-blue)
 <!-- LANGUAGES_END -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -61,9 +61,7 @@ config/www/evcc-card/
 ├── evcc-card.js
 └── locales/
     ├── index.json
-    ├── de.json
-    ├── en.json
-    └── es.json
+    └── *.json
 ```
 
 3. Add it as a Lovelace resource:
@@ -257,23 +255,23 @@ Key icon assignments:
 ## Translations
 
 <!-- LANGUAGES_START -->
-![Supported languages](https://img.shields.io/badge/languages-de%20%7C%20en%20%7C%20es%20%7C%20fr%20%7C%20hr%20%7C%20nl%20%7C%20pt-blue)
+![Supported languages](https://img.shields.io/badge/languages-de%20%7C%20en%20%7C%20es%20%7C%20fr%20%7C%20hr%20%7C%20nl%20%7C%20pl%20%7C%20pt-blue)
 <!-- LANGUAGES_END -->
 
-The card ships with **German**, **English** and **Spanish** and automatically uses the language configured in Home Assistant. You can override it per card via the `language` config option.
+The card ships with multiple languages and automatically uses the language configured in Home Assistant. You can override it per card via the `language` config option.
 
-Translations are stored as simple JSON files in the `locales/` folder. Adding a new language takes only two steps:
+Translations are stored as simple JSON files in the `dist/locales/` folder. Adding a new language takes only two steps:
 
-1. Create a new file `locales/<lang>.json` by copying an existing one (e.g. `en.json`) and translating the values
-2. Add the language code to `locales/index.json`
+1. Create a new file `dist/locales/<lang>.json` by copying an existing one (e.g. `en.json`) and translating the values
+2. Add the language code to `dist/locales/index.json`
 
 ```json
-["de", "en", "es", "fr"]
+["de", "en", "es", "fr", "hr", "nl", "pl", "pt"]
 ```
 
 That's it — no changes to `evcc-card.js` required.
 
-**Want to contribute a translation?** Pull requests for new languages are very welcome! Have a look at [`locales/en.json`](locales/en.json) as a starting point and open a PR with your new language file.
+**Want to contribute a translation?** Pull requests for new languages are very welcome! Have a look at [`dist/locales/en.json`](dist/locales/en.json) as a starting point and open a PR with your new language file.
 
 ---
 

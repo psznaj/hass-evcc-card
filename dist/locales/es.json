@@ -56,5 +56,18 @@
   "tabControl": "Control",
   "tabSettings": "Ajustes",
   "tabPlan": "Plan",
-  "tabSession": "Sesión"
+  "tabSession": "Sesión",
+  "in": "Entrada",
+  "out": "Salida",
+  "hideSettings": "Ocultar ajustes",
+  "showSettings": "Mostrar ajustes",
+  "siteCollapse": "Contraer",
+  "siteExpand": "Expandir",
+  "batteryBoost": "Refuerzo de batería",
+  "on": "ENC.",
+  "off": "APAG.",
+  "fullDischarge": "descarga completa",
+  "unknownError": "Error desconocido",
+  "planStart": "Inicio",
+  "planEnd": "Fin"
 }

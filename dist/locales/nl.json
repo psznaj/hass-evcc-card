@@ -56,5 +56,18 @@
   "tabControl": "Bediening",
   "tabSettings": "Instellingen",
   "tabPlan": "Planning",
-  "tabSession": "Sessie"
+  "tabSession": "Sessie",
+  "in": "In",
+  "out": "Uit",
+  "hideSettings": "Instellingen verbergen",
+  "showSettings": "Instellingen tonen",
+  "siteCollapse": "Inklappen",
+  "siteExpand": "Uitklappen",
+  "batteryBoost": "Batterij-boost",
+  "on": "AAN",
+  "off": "UIT",
+  "fullDischarge": "volledige ontlading",
+  "unknownError": "Onbekende fout",
+  "planStart": "Start",
+  "planEnd": "Einde"
 }

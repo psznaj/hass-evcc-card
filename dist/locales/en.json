@@ -56,5 +56,18 @@
   "tabControl": "Control",
   "tabSettings": "Settings",
   "tabPlan": "Plan",
-  "tabSession": "Session"
+  "tabSession": "Session",
+  "in": "Input",
+  "out": "Output",
+  "hideSettings": "Hide settings",
+  "showSettings": "Show settings",
+  "siteCollapse": "Collapse",
+  "siteExpand": "Expand",
+  "batteryBoost": "Battery boost",
+  "on": "ON",
+  "off": "OFF",
+  "fullDischarge": "full discharge",
+  "unknownError": "Unknown error",
+  "planStart": "Start",
+  "planEnd": "End"
 }

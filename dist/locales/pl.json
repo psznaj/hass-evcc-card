@@ -56,5 +56,18 @@
   "tabControl": "Sterowanie",
   "tabSettings": "Ustawienia",
   "tabPlan": "Plan",
-  "tabSession": "Sesja"
+  "tabSession": "Sesja",
+  "in": "Wejście",
+  "out": "Wyjście",
+  "hideSettings": "Ukryj ustawienia",
+  "showSettings": "Pokaż ustawienia",
+  "siteCollapse": "Zwiń",
+  "siteExpand": "Rozwiń",
+  "batteryBoost": "Wspomaganie z baterii",
+  "on": "WŁ.",
+  "off": "WYŁ.",
+  "fullDischarge": "pełne rozładowanie",
+  "unknownError": "Nieznany błąd",
+  "planStart": "Start",
+  "planEnd": "Koniec"
 }

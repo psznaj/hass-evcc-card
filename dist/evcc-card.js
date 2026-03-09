@@ -8,7 +8,11 @@
  *                /config/www/evcc-card/locales/en.json
  */
 
-const EVCC_CARD_VERSION = "0.2.7";
+import { loadTranslations, getLocale, getLang, formatDateTime, translate } from "./translations.js?v=0.2.9";
+import { renderPlanBlock, renderSessionInfo, renderPlanMode } from "./plan.js?v=0.2.9";
+import { getEvccCardStyles } from "./styles.js?v=0.2.9";
+
+const EVCC_CARD_VERSION = "0.2.9";
 
 const FEATURES = [
   { suffix: "mode",                domain: "select",        type: "mode",          lp: true  },
@@ -195,34 +199,7 @@ class EvccCard extends HTMLElement {
   }
 
   async _loadTranslations() {
-    const base = new URL("locales/", import.meta.url).href;
-
-    let langs = ["de", "en"];
-    try {
-      const idxResp = await fetch(`${base}index.json`);
-      if (idxResp.ok) langs = await idxResp.json();
-      else console.warn("[evcc-card] locales/index.json not found, using fallback:", langs);
-    } catch (e) {
-      console.warn("[evcc-card] Could not load locales/index.json, using fallback:", langs);
-    }
-
-    const results = await Promise.allSettled(
-      langs.map(lang =>
-        fetch(`${base}${lang}.json`)
-          .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-          .then(data => ({ lang, data }))
-      )
-    );
-
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        this._translations[result.value.lang] = result.value.data;
-      } else {
-        console.warn("[evcc-card] Failed to load translation:", result.reason);
-      }
-    }
-
-    this._translationsReady = true;
+    await loadTranslations(this);
   }
 
   set hass(hass) {
@@ -249,7 +226,7 @@ class EvccCard extends HTMLElement {
       const slug = id.split(".")[1] ?? "";
       return slug.startsWith("evcc_");
     });
-    const lang = this._config.language || (hass.language ?? "de");
+    const lang = this._config.language || (hass.language ?? "en");
     return lang + "|" + evccIds.map(id => `${id}=${hass.states[id]?.state}`).join("|");
   }
 
@@ -281,30 +258,23 @@ class EvccCard extends HTMLElement {
   }
 
   _tInline(key) {
-    const lang = (this._config.language
-      || (this._hass?.language ?? "de")).split("-")[0].toLowerCase();
-    const map = {
-      siteCollapse: { de: "Einklappen", en: "Collapse" },
-      siteExpand:   { de: "Ausklappen", en: "Expand" },
-    };
-    return (map[key]?.[lang]) ?? (map[key]?.["en"]) ?? key;
+    return this._t(key);
+  }
+
+  _getLocale() {
+    return getLocale(this);
+  }
+
+  _getLang() {
+    return getLang(this);
+  }
+
+  _formatDateTime(value) {
+    return formatDateTime(this, value);
   }
 
   _t(key, replacements = {}) {
-    const lang = (this._config.language
-      || (this._hass?.language ?? "de")).split("-")[0].toLowerCase();
-
-    const strings = this._translations[lang]
-      || this._translations["de"]
-      || {};
-
-    let val = strings[key] ?? key;
-
-    for (const [k, v] of Object.entries(replacements)) {
-      val = val.replace(`{${k}}`, v);
-    }
-
-    return val;
+    return translate(this, key, replacements);
   }
 
   _render() {
@@ -671,10 +641,10 @@ class EvccCard extends HTMLElement {
       const max      = pctOpts[pctOpts.length - 1] ?? 100;
       const step     = pctOpts.length > 1 ? (pctOpts[1] - pctOpts[0]) : 5;
       const curPct   = (!current || current === "unknown") ? 100 : parseInt(current);
-      const label    = curPct === 100 ? "AUS" : curPct === 0 ? "0 % (Vollentladung)" : `${curPct} %`;
+      const label    = curPct === 100 ? this._t("off") : curPct === 0 ? `0 % (${this._t("fullDischarge")})` : `${curPct} %`;
       return `
         <div class="slider-row">
-          <label>Batterie-Boost</label>
+          <label>${this._t("batteryBoost")}</label>
           <div class="slider-control">
             <input type="range"
                    min="${min}" max="${max}" step="${step}" value="${curPct}"
@@ -702,7 +672,7 @@ class EvccCard extends HTMLElement {
                     data-entity="${entityId}"
                     data-domain="${domain}"
                     data-on="${on}">
-              ${on ? "AN" : "AUS"}
+              ${on ? this._t("on") : this._t("off")}
             </button>
           </div>
         `;
@@ -739,196 +709,15 @@ class EvccCard extends HTMLElement {
   }
 
   _renderPlanBlock(lpName, ents, force = false) {
-    const hasVehicle = !!ents.vehicle_soc;
-    const planActive = ents.plan_active ? isOn(this._hass, ents.plan_active) : false;
-    const planTime   = ents.effective_plan_time
-      ? stateVal(this._hass, ents.effective_plan_time) : null;
-    const planSoc    = ents.effective_plan_soc
-      ? stateVal(this._hass, ents.effective_plan_soc) : null;
-    const projStart  = ents.plan_projected_start
-      ? stateVal(this._hass, ents.plan_projected_start) : null;
-    const projEnd    = ents.plan_projected_end
-      ? stateVal(this._hass, ents.plan_projected_end) : null;
-
-    if (!ents.effective_plan_soc || !this._hass.states[ents.effective_plan_soc]) return "";
-    if (!force && !hasVehicle && !planActive) return "";
-
-    if (!this._planState[lpName]) {
-      const initSoc = (planSoc && planSoc !== "unknown" && planSoc !== "unavailable")
-        ? Math.round(parseFloat(planSoc)) : 80;
-      let initDt = "";
-      if (planTime && planTime !== "unknown" && planTime !== "unavailable") {
-        try {
-          const d = new Date(planTime);
-          const offset = d.getTimezoneOffset() * 60000;
-          initDt = new Date(d - offset).toISOString().slice(0, 16);
-        } catch(e) {}
-      }
-      if (!initDt) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(7, 0, 0, 0);
-        const offset = tomorrow.getTimezoneOffset() * 60000;
-        initDt = new Date(tomorrow - offset).toISOString().slice(0, 16);
-      }
-      this._planState[lpName] = { soc: initSoc, time: initDt, vehicle: null };
-    }
-
-    const defaultSoc     = this._planState[lpName].soc;
-    const defaultDt      = this._planState[lpName].time;
-
-    const vehicleEntityId    = ents.vehicle_name || null;
-    const vehicleAttrs       = vehicleEntityId ? (this._hass.states[vehicleEntityId]?.attributes ?? {}) : {};
-    const allOptions         = (vehicleAttrs.options ?? []).filter(o => o !== "null" && o !== "");
-    const vehicleAttr        = vehicleAttrs.vehicle ?? null;
-
-    const dbIdToName = {};
-    if (vehicleAttr?.evccName && vehicleAttr?.name) {
-      dbIdToName[vehicleAttr.evccName] = vehicleAttr.name;
-    }
-    allOptions.forEach(id => { if (!dbIdToName[id]) dbIdToName[id] = id; });
-
-    if (!this._planState[lpName].vehicle && vehicleAttr?.evccName) {
-      this._planState[lpName].vehicle = vehicleAttr.evccName;
-    }
-    const defaultVehicle = this._planState[lpName].vehicle;
-
-    const vehicleSelectHtml = allOptions.length > 0 ? `
-      <div class="plan-row">
-        <label>${this._t("vehicle")}</label>
-        <select class="plan-vehicle-select" data-lp="${lpName}" data-entity="${vehicleEntityId ?? ""}">
-          ${allOptions.map(id => `
-            <option value="${id}" ${id === defaultVehicle ? "selected" : ""}>${dbIdToName[id]}</option>
-          `).join("")}
-        </select>
-      </div>` : "";
-
-    const fmtDt = (iso) => {
-      if (!iso || iso === "unknown" || iso === "unavailable") return null;
-      try {
-        return new Date(iso).toLocaleString("de-DE", {
-          weekday: "short", day: "2-digit", month: "2-digit",
-          hour: "2-digit", minute: "2-digit"
-        });
-      } catch(e) { return null; }
-    };
-
-    const startStr = fmtDt(projStart);
-    const endStr   = fmtDt(projEnd);
-
-    const planBadge = planActive
-      ? `<span class="plan-badge active">${this._t("chargingByPlan")}</span>`
-      : (planTime && planTime !== "unknown" && planTime !== "unavailable")
-        ? `<span class="plan-badge planned">${this._t("planned")}</span>`
-        : `<span class="plan-badge">${this._t("noPlan")}</span>`;
-
-    const projectionHtml = (startStr || endStr) ? `
-      <div class="plan-projection">
-        ${startStr ? `<span style="display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M16.06,3.5L17.5,2.08L18.92,3.5L17.5,4.92L16.06,3.5M7.06,3.5L5.64,2.08L4.22,3.5L5.64,4.92L7.06,3.5M12,6A4,4 0 0,1 16,10V16H13V22H11V16H8V10A4,4 0 0,1 12,6Z"/></svg> Start: <strong>${startStr}</strong></span>` : ""}
-        ${endStr   ? `<span>✅ Ende: <strong>${endStr}</strong></span>`    : ""}
-      </div>` : "";
-
-    return `
-      <div class="plan-block" data-lp="${lpName}">
-        <div class="plan-header">
-          <span class="session-title">${this._t("chargePlan")}</span>
-          ${planBadge}
-        </div>
-        ${projectionHtml}
-        <div class="plan-inputs">
-          ${vehicleSelectHtml}
-          <div class="plan-row">
-            <label>${this._t("finishBy")}</label>
-            <input type="datetime-local" class="plan-time-input"
-                   value="${defaultDt}" data-lp="${lpName}" />
-          </div>
-          <div class="plan-row">
-            <label>${this._t("targetSoc")}</label>
-            <div class="plan-soc-control">
-              <input type="range" class="plan-soc-range"
-                     min="20" max="100" step="5" value="${defaultSoc}"
-                     data-lp="${lpName}" />
-              <span class="plan-soc-val">${defaultSoc} %</span>
-            </div>
-          </div>
-        </div>
-        <div class="plan-actions">
-          <button class="plan-btn save" data-lp="${lpName}">${this._t("setPlan")}</button>
-          ${(planActive || (planTime && planTime !== "unknown" && planTime !== "unavailable"))
-            ? `<button class="plan-btn delete" data-lp="${lpName}">${this._t("deletePlan")}</button>`
-            : ""}
-        </div>
-      </div>
-    `;
+    return renderPlanBlock(this, lpName, ents, force, { isOn, stateVal, unitStr });
   }
 
   _renderSessionInfo(ents) {
-    const hasAny = ents.session_energy || ents.session_price || ents.charge_duration;
-    if (!hasAny) return "";
-
-    const energy = ents.session_energy
-      ? (() => {
-          const v = parseFloat(stateVal(this._hass, ents.session_energy));
-          return isNaN(v) ? "—" : `${v.toFixed(2)} kWh`;
-        })() : null;
-
-    const price = ents.session_price
-      ? (() => {
-          const v    = parseFloat(stateVal(this._hass, ents.session_price));
-          const unit = unitStr(this._hass, ents.session_price) || "€";
-          return isNaN(v) ? "—" : `${v.toFixed(2)} ${unit}`;
-        })() : null;
-
-    const duration = ents.charge_duration
-      ? (() => {
-          const raw = stateVal(this._hass, ents.charge_duration);
-          let totalSec;
-          if (raw && raw.includes(":")) {
-            const parts = raw.split(":").map(Number);
-            totalSec = parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
-          } else {
-            totalSec = parseFloat(raw) || 0;
-          }
-          const h   = Math.floor(totalSec / 3600);
-          const min = Math.floor((totalSec % 3600) / 60);
-          if (h > 0) return `${h} h ${min} min`;
-          if (min > 0) return `${min} min`;
-          return `< 1 min`;
-        })() : null;
-
-    const phases = ents.phases_active
-      ? stateVal(this._hass, ents.phases_active) : null;
-
-    const items = [
-      energy   ? `<div class="session-item"><span class="si-label">${this._t("energy")}</span><span class="si-value">${energy}</span></div>`   : "",
-      price    ? `<div class="session-item"><span class="si-label">${this._t("cost")}</span><span class="si-value">${price}</span></div>`     : "",
-      duration ? `<div class="session-item"><span class="si-label">${this._t("duration")}</span><span class="si-value">${duration}</span></div>`   : "",
-      phases   ? `<div class="session-item"><span class="si-label">${this._t("phases")}</span><span class="si-value">${phases}</span></div>`    : "",
-    ].filter(Boolean);
-
-    return `
-      <div class="session-block">
-        <div class="session-title">${this._t("chargeSession")}</div>
-        <div class="session-grid">${items.join("")}</div>
-      </div>
-    `;
+    return renderSessionInfo(this, ents, { stateVal, unitStr });
   }
 
   _renderPlanMode(loadpoints) {
-    if (Object.keys(loadpoints).length === 0) return this._renderEmpty(loadpoints);
-    return Object.entries(loadpoints).map(([lpName, ents]) => {
-      const planHtml    = this._renderPlanBlock(lpName, ents, true);
-      const sessionHtml = this._renderSessionInfo(ents);
-      if (!planHtml) return "";
-      return `
-        <div class="loadpoint">
-          <div class="lp-header">
-            <span class="lp-name">${lpName}</span>
-          </div>
-          ${planHtml}
-          ${sessionHtml}
-        </div>`;
-    }).join("");
+    return renderPlanMode(this, loadpoints, { isOn, stateVal, unitStr });
   }
 
   _renderSiteBlock(site, loadpoints = {}) {
@@ -1549,9 +1338,9 @@ class EvccCard extends HTMLElement {
         const display = input.nextElementSibling;
         if (!display) return;
         if (input.dataset.boostType === "switch") {
-          display.textContent = val >= 50 ? "AN" : "AUS";
+          display.textContent = val >= 50 ? this._t("on") : this._t("off");
         } else {
-          display.textContent = val === 100 ? "AUS" : val === 0 ? "0 % (Vollentladung)" : `${val} %`;
+          display.textContent = val === 100 ? this._t("off") : val === 0 ? `0 % (${this._t("fullDischarge")})` : `${val} %`;
         }
       });
       input.addEventListener("pointerup",  () => this._boostCommit(input));
@@ -1715,255 +1504,7 @@ class EvccCard extends HTMLElement {
   }
 
   _styles() {
-    return `
-      :host { display: block; }
-      ha-card {
-        background: var(--card-background-color);
-        color: var(--primary-text-color);
-        font-family: var(--paper-font-body1_-_font-family, sans-serif);
-      }
-      .card-content { padding: 12px 16px 16px; }
-
-      .loadpoint {
-        padding: 12px 0;
-        border-bottom: 1px solid var(--divider-color, #e5e7eb);
-        margin-bottom: 0;
-      }
-      .loadpoint:first-child { padding-top: 0; }
-      .loadpoint:last-child { border-bottom: none; padding-bottom: 0; }
-      .lp-header {
-        display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
-      }
-      .lp-name { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-      .lp-badge {
-        font-size: .75rem; font-weight: 600; padding: 2px 10px;
-        border-radius: 999px; border: 1px solid currentColor;
-      }
-
-      .mode-row { display: flex; gap: 6px; margin-bottom: 12px; }
-      .mode-btn {
-        flex: 1; display: flex; flex-direction: column; align-items: center;
-        gap: 2px; padding: 8px 4px;
-        border: 1px solid var(--divider-color, #e5e7eb); border-radius: 8px;
-        background: transparent; color: var(--secondary-text-color);
-        cursor: pointer; font-size: .7rem; transition: all .15s;
-      }
-      .mode-btn:hover { border-color: var(--primary-color); }
-      .mode-btn.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
-      .mode-icon { display: flex; align-items: center; justify-content: center; line-height: 1; min-height: 20px; }
-
-      .soc-section { margin-bottom: 12px; }
-      .soc-label-row {
-        display: flex; justify-content: space-between;
-        font-size: .85rem; margin-bottom: 6px; color: var(--secondary-text-color);
-      }
-      .soc-track {
-        position: relative; height: 8px;
-        background: var(--divider-color, #e5e7eb); border-radius: 4px; overflow: visible;
-      }
-      @keyframes soc-pulse {
-        0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; }
-      }
-      .soc-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
-      .soc-fill.charging { animation: soc-pulse 1.4s ease-in-out infinite; }
-      .soc-limit-marker {
-        position: absolute; top: -3px; width: 3px; height: 14px;
-        background: var(--warning-color, #f59e0b); border-radius: 2px; transform: translateX(-50%);
-      }
-
-      .power-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; color: var(--secondary-text-color); }
-      .power-row.charging { color: #22c55e; }
-      .power-value { font-size: 1.6rem; font-weight: 700; }
-      .power-sep { font-size: .8rem; color: var(--secondary-text-color); align-self: flex-end; padding-bottom: .2rem; }
-      .power-current { font-size: .82rem; align-self: flex-end; padding-bottom: .2rem; }
-      .power-phases  { font-size: .82rem; align-self: flex-end; padding-bottom: .2rem; }
-
-      .sliders { margin-bottom: 10px; }
-      .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: .83rem; }
-      .slider-row label { width: 90px; flex-shrink: 0; color: var(--secondary-text-color); }
-      .slider-control { display: flex; align-items: center; gap: 8px; flex: 1; }
-      .slider-control input { flex: 1; accent-color: var(--primary-color); }
-      .slider-val { width: 58px; text-align: right; font-size: .8rem; }
-
-      .toggles { margin-bottom: 10px; }
-      .toggle-row { display: flex; justify-content: space-between; align-items: center; font-size: .83rem; margin-bottom: 6px; }
-      button.toggle {
-        padding: 3px 14px; border-radius: 999px; border: 1px solid var(--divider-color);
-        background: transparent; color: var(--secondary-text-color);
-        cursor: pointer; font-size: .75rem; font-weight: 600; transition: all .15s;
-      }
-      button.toggle.on { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
-
-      .current-block {
-        border-top: 1px solid var(--divider-color, #333);
-        margin-top: 10px; padding-top: 10px; margin-bottom: 10px;
-      }
-      .block-title-row {
-        display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
-      }
-      .block-title {
-        font-size: .7rem; font-weight: 600; text-transform: uppercase;
-        letter-spacing: .08em; color: var(--secondary-text-color);
-      }
-      .current-toggle-btn {
-        background: transparent; border: none; border-radius: 50%;
-        color: var(--secondary-text-color); cursor: pointer;
-        padding: 3px; display: flex; align-items: center; justify-content: center;
-        transition: color .15s, background .15s; margin: -3px;
-      }
-      .current-toggle-btn:hover {
-        color: var(--primary-color);
-        background: var(--secondary-background-color, rgba(0,0,0,.06));
-      }
-      .current-toggle-btn.active { color: var(--primary-color); }
-      .current-block-body[hidden] { display: none; }
-
-      .selects { margin-bottom: 10px; }
-      .select-row { display: flex; justify-content: space-between; align-items: center; font-size: .83rem; margin-bottom: 6px; }
-      .phase-btn-group { display: flex; gap: 4px; }
-      button.phase-btn {
-        padding: 3px 10px; border-radius: 999px; border: 1px solid var(--divider-color);
-        background: transparent; color: var(--secondary-text-color);
-        cursor: pointer; font-size: .75rem; font-weight: 600; transition: all .15s; white-space: nowrap;
-      }
-      button.phase-btn.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
-
-      .site-block { padding: 0; }
-      .site-table-hidden { display: none; }
-      .flow-wrap-clickable {
-        cursor: pointer;
-        border-radius: 6px;
-        transition: opacity .15s;
-      }
-      .flow-wrap-clickable:hover { opacity: 0.85; }
-
-      .flow-wrap {
-        margin-bottom: 18px;
-        padding: 0;
-      }
-      .flow-wrap svg {
-        overflow: visible;
-      }
-      .flow-overlay {
-        color: var(--primary-text-color, #212121);
-      }
-      .site-table { display: flex; flex-direction: column; }
-      .site-section-gap { border-top: 1px solid var(--divider-color, #333); margin: 10px 0 12px; }
-      .site-section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--divider-color, #333); }
-      .site-section-title { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--secondary-text-color); }
-      .site-section-total { font-size: 1rem; font-weight: 700; }
-      .site-row { display: grid; grid-template-columns: 1.4rem 1fr auto; gap: 0 6px; align-items: center; padding: 5px 0; font-size: .78rem; }
-      .site-row-icon  { display: flex; align-items: center; justify-content: center; }
-      .site-row-label { display: flex; flex-direction: column; gap: 1px; }
-      .site-row-name  { font-size: .8rem; }
-      .site-row-sub   { font-size: .68rem; color: var(--secondary-text-color); }
-      .site-row-pw    { font-weight: 700; font-size: .82rem; min-width: 48px; text-align: right; }
-      .site-row-indent { padding-left: 1.2rem; position: relative; }
-      .site-row-indent::before {
-        content: "└";
-        position: absolute;
-        left: 0.15rem;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: .75rem;
-        color: var(--secondary-text-color);
-        opacity: 0.6;
-      }
-      .site-row-indent .site-row-icon { opacity: 0.7; }
-      .site-row-indent .site-row-name { font-size: .75rem; color: var(--secondary-text-color); }
-      .site-row-indent .site-row-pw   { font-size: .78rem; }
-      .site-pw-green  { color: #22c55e; }
-      .site-pw-blue   { color: #3b82f6; }
-      .site-pw-yellow { color: #facc15; }
-
-      .battery-block { padding: 0; }
-      .batt-tabs { display: flex; border-bottom: 1px solid var(--divider-color, #333); margin-bottom: 14px; }
-      button.batt-tab {
-        background: transparent; border: none; border-bottom: 2px solid transparent;
-        color: var(--secondary-text-color); padding: 7px 16px; font-size: .84rem; cursor: pointer; margin-bottom: -1px;
-      }
-      button.batt-tab.active { color: var(--primary-text-color); border-bottom-color: var(--primary-text-color); font-weight: 600; }
-      .batt-main-row { display: flex; gap: 16px; align-items: flex-start; }
-      .batt-text-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-      .batt-text-item { display: flex; gap: 8px; align-items: flex-start; }
-      .batt-text-icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
-      .batt-text-title { font-size: .82rem; font-weight: 600; margin-bottom: 2px; }
-      .batt-text-desc  { font-size: .76rem; color: var(--secondary-text-color); line-height: 1.4; }
-      .batt-inline-val { color: var(--primary-color, #00b4d8); text-decoration: underline dotted; cursor: pointer; font-weight: 600; }
-      .batt-visual-col { display: flex; align-items: flex-start; gap: 10px; flex-shrink: 0; }
-      .batt-marker-top { display: none; }
-      .batt-visual { display: flex; flex-direction: column; align-items: center; width: 56px; }
-      .batt-cap-tip { width: 22px; height: 5px; background: var(--divider-color, #555); border-radius: 3px 3px 0 0; margin-bottom: 1px; }
-      .batt-body { width: 56px; height: 130px; border: 2px solid var(--divider-color, #555); border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; position: relative; }
-      .batt-zone { display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; min-height: 20px; }
-      .batt-zone-car  { background: #22c55e18; }
-      .batt-zone-haus { background: #3b82f618; }
-      .batt-zone-icon { font-size: 1.2rem; }
-      .batt-divider-line { height: 2px; background: var(--divider-color, #555); flex-shrink: 0; z-index: 2; }
-      .batt-soc-overlay { position: absolute; bottom: 0; left: 0; right: 0; z-index: 0; border-radius: 0 0 3px 3px; transition: height .4s; opacity: 0.55; }
-      .batt-info-col { display: flex; flex-direction: column; gap: 3px; padding-top: 2px; min-width: 90px; }
-      .batt-info-label { font-size: .72rem; color: var(--secondary-text-color); }
-      .batt-info-pct   { font-size: 1rem; font-weight: 700; }
-      .batt-info-kwh, .batt-info-power { font-size: .72rem; color: var(--secondary-text-color); }
-      .batt-discharge-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: .84rem; }
-      .batt-discharge-toggle { width: 42px; height: 24px; border-radius: 12px; border: none; background: var(--divider-color, #444); position: relative; cursor: pointer; flex-shrink: 0; transition: background .2s; }
-      .batt-discharge-toggle.on { background: var(--primary-color, #00b4d8); }
-      .batt-toggle-knob { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: white; top: 3px; left: 3px; transition: left .2s; }
-      .batt-discharge-toggle.on .batt-toggle-knob { left: 21px; }
-      .batt-inline-popup { display: flex; align-items: center; gap: 8px; background: var(--card-background-color, #1c1c1e); border: 1px solid var(--divider-color, #333); border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
-      .batt-inline-popup[hidden] { display: none; }
-      .batt-inline-input { flex: 1; }
-      .batt-inline-label { font-size: .84rem; font-weight: 600; min-width: 44px; text-align: right; }
-
-      .session-block { border-top: 1px solid var(--divider-color, #e5e7eb); margin-top: 10px; padding-top: 10px; }
-      .session-title { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--secondary-text-color); margin-bottom: 8px; }
-      .session-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; }
-      .session-item { display: flex; flex-direction: column; gap: 2px; }
-      .si-label { font-size: .7rem; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .05em; }
-      .si-value { font-size: .95rem; font-weight: 600; color: var(--primary-text-color); }
-
-      .plan-block { border-top: 1px solid var(--divider-color, #e5e7eb); margin-top: 10px; padding-top: 10px; }
-      .plan-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-      .plan-badge { font-size: .7rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--divider-color); color: var(--secondary-text-color); }
-      .plan-badge.planned { background: rgba(0, 120, 180, 0.3); color: #60aaff; }
-      .plan-badge.active  { background: #22c55e22; color: #22c55e; border-color: #22c55e; }
-      .plan-projection { display: flex; flex-direction: column; gap: 3px; font-size: .78rem; color: var(--secondary-text-color); margin-bottom: 10px; padding: 7px 10px; background: var(--secondary-background-color, rgba(0,0,0,.08)); border-radius: 6px; }
-      .plan-projection strong { color: var(--primary-text-color); }
-      .plan-inputs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-      .plan-row { display: flex; align-items: center; gap: 8px; font-size: .83rem; }
-      .plan-row label { width: 70px; flex-shrink: 0; color: var(--secondary-text-color); }
-      .plan-soc-control { display: flex; align-items: center; gap: 8px; flex: 1; }
-      .plan-soc-range { flex: 1; accent-color: var(--primary-color); }
-      .plan-soc-val { width: 42px; text-align: right; font-size: .8rem; }
-      input.plan-time-input { flex: 1; padding: 4px 8px; border: 1px solid var(--divider-color, #4b5563); border-radius: 6px; background: var(--card-background-color); color: var(--primary-text-color); font-size: .82rem; color-scheme: dark light; }
-      .plan-actions { display: flex; gap: 8px; }
-      .plan-btn { flex: 1; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--divider-color); font-size: .8rem; font-weight: 600; cursor: pointer; transition: all .15s; background: transparent; color: var(--primary-text-color); }
-      .plan-btn.save { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
-      .plan-btn.save:hover { filter: brightness(1.1); }
-      .plan-btn.delete { color: #ef4444; border-color: #ef444466; }
-      .plan-btn.delete:hover { background: #ef444422; }
-      select.plan-vehicle-select { flex: 1; padding: 4px 8px; border: 1px solid var(--divider-color, #4b5563); border-radius: 6px; background: var(--card-background-color); color: var(--primary-text-color); font-size: .82rem; }
-      .plan-error { margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #ef444422; color: #ef4444; font-size: .78rem; word-break: break-all; }
-
-      .empty { text-align: center; padding: 24px; color: var(--secondary-text-color); font-size: .9rem; line-height: 1.8; }
-      .empty code { background: var(--code-editor-background-color, #1e1e1e); color: var(--primary-color); padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
-      .compact-tabs {
-        display: flex; gap: 4px; margin-bottom: 12px;
-        border-bottom: 1px solid var(--divider-color, #e5e7eb); padding-bottom: 0;
-      }
-      .compact-tab {
-        flex: 1; display: flex; flex-direction: column; align-items: center;
-        gap: 2px; padding: 6px 4px 8px; background: transparent; border: none;
-        border-bottom: 2px solid transparent; color: var(--secondary-text-color);
-        cursor: pointer; font-size: .68rem; margin-bottom: -1px;
-        transition: color .15s, border-color .15s;
-      }
-      .compact-tab:hover { color: var(--primary-text-color); }
-      .compact-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 600; }
-      .compact-tab-icon  { font-size: 1rem; line-height: 1; }
-      .compact-tab-label { font-size: .68rem; }
-      .compact-panel[hidden] { display: none; }
-    `;
+    return getEvccCardStyles();
   }
 }
 

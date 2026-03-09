@@ -56,5 +56,18 @@
   "tabControl": "Kontrola",
   "tabSettings": "Postavke",
   "tabPlan": "Plan",
-  "tabSession": "Postupak"
+  "tabSession": "Postupak",
+  "in": "Ulaz",
+  "out": "Izlaz",
+  "hideSettings": "Sakrij postavke",
+  "showSettings": "Prikaži postavke",
+  "siteCollapse": "Sažmi",
+  "siteExpand": "Proširi",
+  "batteryBoost": "Pojačanje baterije",
+  "on": "UKLJ.",
+  "off": "ISKLJ.",
+  "fullDischarge": "potpuno pražnjenje",
+  "unknownError": "Nepoznata greška",
+  "planStart": "Početak",
+  "planEnd": "Kraj"
 }

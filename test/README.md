@@ -1,0 +1,327 @@
+# Tests
+
+Headless browser tests for the card. No Home Assistant instance is needed at
+runtime: the card runs against a mock `hass` object fed from JSON fixtures.
+
+## What is covered
+
+Groups in `run.py` (`--only <group>`, repeatable):
+
+| Group | Checks |
+|---|---|
+| `unit` | Pure functions from `src/utils` in node, no browser: number/step formatting, the dual-format evcc timestamp parser, duration and countdown strings, the SoC gradients, HTML escaping, the `stats_period` normalisation, entity discovery, and that `package.json` still carries the version from `src/core/constants.js` |
+| `render` | Every card mode in light and dark, screenshot per mode, fails on any console error; stats bar chart from sessions  Plus one shared stylesheet: a rendered card adopts one `CSSStyleSheet` and inlines no `<style>`, a second card gets the same parsed sheet, and re-renders do not adopt it twice |
+| `stats_fallback` | Stats mode on an ha-evcc without `evcc_intg/sessions`: the recorder is queried for sum buckets, the chart is rebuilt from the deltas, the solar split survives, the `30d` tab switches to day buckets |
+| `stats_period` | Every `stats_period` value steers both stats paths the same way: the current vocabulary (`month`/`year`/`total`/`none`), the legacy one older dashboards carry (`30d`/`365d`/`thisYear`), and the unconfigured default, each with and without the sessions API; plus `none` hiding the footer under `site` |
+| `renderkey` | A hass update only reaches the DOM when the render key changes. Changed select options and number bounds must trigger a render, an update that changes nothing must not; a change to a foreign entity, or the same states table pushed again, must not even build the key (HA keeps the state object of an untouched entity, so an identity check per evcc entity settles it), while a language change alone still renders; the render records the entities it read through a proxy on `hass.states`, and only those count: a loadpoint card showing `openwb` ignores the heating loadpoint but follows the tariff sensor it reads past the discovery; and `RENDER_ATTRS` must list every attribute the card reads: the group proxies the attribute objects during a render of every mode and fails on anything outside the list |
+| `lifecycle` | Detach and re-attach the same card element, the way Lovelace re-mounts on a view switch: the `evcc-plan-reset` listener and the countdown interval must come back, a re-mount must cost no backend call and keeps the WebSocket caches (the sessions behind the footer are not fetched again within their TTL and the footer keeps its figures), a render pending at detach is cancelled and picked up again on re-mount; the site and flow toggles work through the delegation before and after a re-mount, the markup carries no inline handler, and a click on a flow node opens more-info without folding the table |
+| `interaction` | Direct-input panel on number sliders, select-backed sliders (min/max current), battery boost and the plan target; keyboard writes (none for a key that moved nothing); outside click (inside and outside the card) / tab switch closing the panel, a deferred hass update surviving a panel switch; `hide_settings`, `slider_steps` (matched against the feature key, not the tail of the entity id, and reported in the console when a select-backed slider cannot honour it); plan preview request, its duration in hours and minutes (`1 h 31 min @ 11 kW`, no `m:ss`), fetched again when HA reports a changed precondition or continuous setting (the static preview takes neither, evcc applies the vehicle's settings itself, so they are part of the cache key) and not again for a render with unchanged settings; more-info on the loadpoint header values (status, remaining time, vehicle, SoC, power, currents, session figures) in loadpoint and compact mode, with the slider values kept out and the attribute surviving a live update; the mode buttons mark the pressed one before HA answers and give the mark back when the service call is refused, and a render before HA answers keeps the pressed mode and phase (the written value stands in for the state until HA reports something else); a focused date input or select and a slider drag hold a render back whoever asks for it (the element survives a direct `_render()`), blur, change and pointerup run the deferred render, and a re-mount clears the guard; with a render pending while a dropdown is open, the picked precondition is what goes to HA and the select keeps showing it until HA reports it back, and a typed plan time survives the deferred render (the flush runs after every listener of the event, and the morph leaves a form value alone while the markup has not moved); the charging SoC bar and its running pulse animation are the same objects after a re-render |
+| `editor` | The visual editor emits every field into the config (text, all selects, all checkbox groups), emits the complete config rather than a patch, and drops a key again when a field returns to its default; the mode switch re-renders the form; `stats_period` shows the default of the current mode instead of a preselected period and keeps a legacy value selected without rewriting it |
+| `escaping` | Names that are free text in an evcc/HA configuration reach the DOM as text: card title, vehicle title, loadpoint title, PV device title, unit of measurement, the session names and the currency from the WebSocket API, the config dump and a vehicle id inside an attribute. Each payload has to appear verbatim and create no element |
+| `contracts` | Every writing control calls the right HA service with the right payload: mode, always charge, phases, clear-limit buttons, boost chip, continuous charging, preconditioning, vehicle select (including `null` for the guest vehicle), set/delete plan (a vehicle plan in percent; a guest vehicle and a vehicle without SoC (`Offline` feature) are planned in kWh on the loadpoint by its evcc index, with integer energy as ha-evcc requires, the kWh range up to the capacity or 100, the preview asking for kind `energy`, and the delete going to the loadpoint as well), slider release, battery discharge control, battery selects; ha-evcc's `null` reads Gastfahrzeug in the header and the vehicle select while a car is plugged in, Kein Fahrzeug in the select and no name in the header otherwise; without a SoC (guest vehicle at SoC 0) the header shows the energy charged on an energy bar and the energy limit (`keins` at 0) replaces the SoC sliders, while a SoC above zero keeps the SoC view as in evcc |
+| `tariff` | The mode set of the evcc 0.316 fixture (`off`, `smart`, `now`) with the always-charge row that comes and goes with the smart mode; loadpoints without solar (`no_pv`): the smart mode stays only with a tariff, and on the legacy mode set of older evcc versions `pv` is relabelled as the smart mode; the same on a co2 signal, where the card must read `tariff_co2` instead of `tariff_grid`; plan preview in g/kWh with a price counter-check |
+| `traffic` | Plan preview traffic rules promised to ha-evcc: one call per target change, none while idle, cache hit on repeat, one call per slider drag |
+| `priority` | Regression for #170: drag and drop reorders the rows without jitter, apply writes the new priorities |
+| `locales` | All 8 locale files share the same keys, `index.json` is complete, no untranslated key reaches the DOM in any language |
+| `editor_instances` | With one ha-evcc entry the editor shows no instance field; with two it lists both prefixes, picking the second writes `prefix` and clears the loadpoint filter, picking the first drops `prefix` again, and a configured prefix is preselected |
+| `morph` | A render morphs the live DOM instead of replacing it (`src/utils/morph.js`): a value change keeps every element in place and writes the new text into the old one, a focused button keeps its focus, listeners are bound once (three renders, one click, one service call), a block that appears with the state (the remaining time while charging) is inserted before its siblings in order and wired like any other, the morphed DOM equals a fresh render of the same markup, and an open chart tooltip stays open through a render |
+| `keyboard` | Every non-native click target (more-info rows, the site and flow toggles, the SVG nodes of the flow view) carries `role="button"` and `tabindex="0"` in every mode, Enter and Space on a focused element fire what a click would; without a language from HA the card, the editor and the month labels of the statistics chart fall back to English |
+| `discovery` | Custom entity prefix; a second installation whose prefix extends the first (`evcc_` next to `evcc_demo_`) stays out of the first card and shows up in its own; `disabled_loadpoints` hide/dim/show, heating loadpoint (temperature label, the modes read Normal / Smart / Boost, and no charge plan block, also with a plan running and in the plan mode, where no `plan_preview` may go out); disabled limit entities; two ha-evcc config entries, where the prefix and the entry id behind the WebSocket commands have to come from the same instance, also when the prefix is configured after the registry probe |
+| `flow` | Sankey labels keep their distance on both sides, with the default fixture and with every value below a tenth of a kW, where the bands hit their minimum height and the node centres move closer together than the labels are tall |
+| `cardapi` | The methods Home Assistant expects on a custom card: a rendered `getCardSize()` matches the card's own height within one unit, across a collapsed detail table, a hidden footer and the `size` scale, a collapsed site card reports a fraction of the full one, and the loading placeholder shown while the translations load is never measured; the pre-render estimate answers without hass for every config, drops the table and the footer when they are off and scales with the loadpoint count; `getGridOptions()` declares no row count in any mode, so the sections grid leaves the card's own height alone, and its column limits stay inside the 12 column section; the `window.customCards` entry carries a name, a description, a documentation link and `preview: true`, and the stub config renders on an instance with no evcc entity at all, which is what the picker preview does; `getEntitySuggestion()` returns the loadpoint views for a charge point entity with the name filled in, the site and flow views for a site entity and for a vehicle or meter entity without a loadpoint, `null` for a foreign entity and for an evcc-looking id that matches no feature, and carries the prefix of a second installation into the config, also one with an underscore of its own like `my_evcc_`, read from `hass.entities` |
+| `setconfig` | `setConfig()` accepts every documented value, including the legacy `site2` mode and the legacy `stats_period` values, and throws on an unknown `mode`, `size`, `disabled_loadpoints` or `stats_period` and on an empty or non-string `prefix`, `language` or `loadpoints`; the message names the option and a rejected config leaves the card on the previous one |
+| `widths` | 334 px (nine columns, the floor from `getGridOptions()`) and 650 px cards: the input panel stays inside the card, no horizontal overflow |
+
+Assertions are made on the service calls the card issues (`hass.callService`)
+and the WebSocket commands it sends, which the mock records instead of executing.
+
+## Unit tests
+
+`test/unit/*.test.mjs` import the ES modules under `src/utils/` directly and run
+in node's own test runner, with no browser and no card involved. They cover the
+edge cases a render test can only reach indirectly: a missing entity, the two
+timestamp formats evcc emits, a SoC of 0 in the gradient maths, escaping.
+
+```bash
+node --test test/unit/            # on their own, ~0.2 s
+python3 test/run.py --only unit   # the same tests inside the suite report
+```
+
+The suite runs each file through node's junit reporter and feeds the individual
+cases into the same `report.md` / `junit.xml` as the browser checks, so a broken
+helper shows up in one place with everything else.
+
+## End-to-end against HA-Dev and the evcc demo
+
+`test/e2e.py` is the one suite that does not use the mock. It logs into the
+development Home Assistant with a browser, writes its own dashboard
+`evcc-demo-e2e` (one view per card mode, every card pinned to
+`prefix: evcc_demo_`), renders each mode against the real ha-evcc entities and
+pushes a mode change through the whole stack: card, HA service, ha-evcc, evcc
+API, and back into the card. The evcc behind it is the demo instance
+(`evcc --demo`), so writes are harmless; the production entry in HA-Dev is
+never touched.
+
+It needs the running stack and an admin user in HA-Dev for the test, so it is
+run by hand before a release, not in CI:
+
+```bash
+# once: credentials in test/.e2e.env (gitignored), or exported
+E2E_HA_USER=e2e
+E2E_HA_PASSWORD=...
+
+python3 test/e2e.py                 # smoke + roundtrip + solar_share, report in test/out/e2e/
+python3 test/e2e.py --only smoke    # one group; --headed shows the browser
+```
+
+| Group | What it covers |
+|---|---|
+| `smoke` | Every mode renders on the real dashboard without card errors; the loadpoint modes show every demo loadpoint by name, the debug mode the prefix. One screenshot per mode in `test/out/e2e/` |
+| `roundtrip` | Garage starts off; a click on "now" in the card arrives at evcc (card → HA service → ha-evcc → evcc API), the state comes back into the card, and a change made in evcc itself reaches the card. The demo is reset to its shipped modes before and after |
+| `solar_share` | Garage starts at evcc's default of 100 %; Home on the slider arrives at evcc as 0, and 0.5 set in evcc itself shows as 50 % in the card. Needs evcc 0.316 and ha-evcc 2026.9.5. The demo's solar share is reset to 1 with the modes |
+
+Two things to know when timing interactions here: a fresh browser context reloads
+the page once about two seconds after the first render (the first activation of
+HA's service worker; a browser that has it installed does not), and Playwright
+delivers page events only while an API call is in flight, so measure with
+`page.wait_for_timeout`, not `time.sleep`.
+
+Defaults: `E2E_HA_URL=http://localhost:8123` (the sidecar shares the HA-Dev pod),
+`E2E_EVCC_URL=http://evcc.evcc-demo.svc.cluster.local:7070`, `E2E_PREFIX=evcc_demo_`.
+The demo values change every few seconds, so the checks are structural; nothing
+compares numbers.
+
+## ha-evcc contract check
+
+`test/check_ha_evcc.py` verifies that every entity in the card's `FEATURES`
+array can be produced by ha-evcc (`evcc_intg`): it parses the tag definitions
+and entity description lists of the integration and compares the resulting
+`<domain>.<prefix>[<loadpoint>_]<suffix>` ids with the card. Exit code 1 on a
+missing counterpart; a second column reports whether the entity was seen in
+the registry fixture.
+
+```bash
+python3 test/check_ha_evcc.py                          # ../ha-evcc checkout next to this repo
+python3 test/check_ha_evcc.py --ha-evcc /path/to/config # any tree containing custom_components/evcc_intg
+python3 test/check_ha_evcc.py --clone                  # latest upstream, for CI
+```
+
+Check against the ha-evcc version you release for; an outdated checkout reports
+entities added later (e.g. `disabled_in_config`, the energy counters) as missing.
+
+## Run
+
+```bash
+python3 test/run.py                   # everything, Chromium
+python3 test/run.py --browser webkit  # the same checks in WebKit (reports in test/out/webkit/)
+python3 test/run.py --only render     # screenshots only
+python3 test/run.py --headed          # watch it in a window (one worker)
+python3 test/run.py -j 1              # everything in one process, in order
+```
+
+Screenshots land in `test/out/` (git-ignored). Exit code 1 on failure.
+
+### Speed
+
+The groups run in parallel, one worker process with its own browser each
+(`-j`, default the CPU count, or `EVCC_JOBS`); the longest groups start first
+and every group's output is printed in the usual order once it is complete.
+`report.json` records the seconds per group (`group_durations_s`). A full run
+takes about two minutes per engine.
+
+Two things keep a single check short:
+
+- **Pages are reused.** `new_page()` hands out a page from a pool with one
+  context per browser, `done(page)` gives it back (after `about:blank`, so no
+  card, timer or listener survives the test). Within the context the bundle
+  comes from the HTTP cache and V8 keeps its compiled code; a fresh context
+  per test cost half a second each. Close a test's page with `done(page)`,
+  never `page.close()`.
+- **Waiting for the card, not for the clock.** `harness.html` counts the
+  card's short timers (up to a second: the render debounce, the WebSocket
+  re-render, the mock's service echo) and its open fetches, and watches its
+  shadow DOM. `settle(page)` returns once none is pending and nothing changed
+  for 50 ms; `open_card()` ends with it. Prefer it to a fixed
+  `page.wait_for_timeout` after anything that makes the card render; keep a
+  fixed wait only where the test is about time itself (a countdown tick, a
+  mark that expires).
+
+### Browsers
+
+Chromium stands for desktop Chrome/Edge and the Android companion app (an
+Android System WebView, Chromium-based). WebKit is Playwright's build of
+Safari's engine and stands for Safari and the iOS companion app, which renders
+the frontend in a WKWebView and therefore uses exactly this engine. Both runs
+execute the same groups; only the README screenshot comparison is Chromium-only,
+because text rendering differs between engines. What neither run covers: the
+apps' native layer (authentication, haptics, notifications) and iOS-specific
+input controls such as the native date picker. `EVCC_BROWSER=webkit` selects
+the engine without the flag (used by the CI matrix).
+
+## Reports
+
+Every run of `run.py` or `screenshots.py` writes to `test/out/`:
+
+| File | Content |
+|---|---|
+| `report.md` | Human-readable summary: result, card version, run time, every check with its detail, failures first |
+| `report.json` | The same as data |
+| `junit.xml` | JUnit format for CI test summaries |
+| `pre-commit.log` | Full output of the last pre-commit hook run |
+
+The reports are overwritten by the next run; `screenshots.py` and `run.py`
+share the files, so the report always describes the most recent of the two.
+
+## Deterministic output
+
+`run.py` freezes the browser clock at the capture time of the fixtures
+(`FIXED_TIME`, 2026-09-18 13:00 Europe/Berlin, locale de-DE). Hour labels,
+plan times and the "current month" therefore never drift. CSS animations are not
+covered by the frozen clock, so `screenshots.py` captures with Playwright's
+`animations="disabled"`: the charging pulse of the SoC bar is rewound to its
+first frame instead of landing on a random opacity. Two runs therefore produce
+byte-identical screenshots. A changed PNG means the rendering changed.
+`FIXED_TIME` carries an explicit UTC offset on purpose: a naive time is read in
+the host's timezone, which shifted the plan chart by two hours on a UTC runner.
+
+Known cosmetic difference to the HA frontend: headless Chromium formats the
+native `datetime-local` input (charge plan "finish by") in US notation
+regardless of locale flags. Fonts are Liberation/DejaVu unless Roboto is
+installed (`apt install fonts-roboto`).
+
+## Pre-commit hook
+
+`.githooks/pre-commit` rebuilds `dist/evcc-card.js` from `src/` (`npm run build`),
+runs the syntax check and regenerates the README screenshots whenever `src/` or
+`dist/` is part of a commit, and adds the rebuilt bundle and changed images to
+that commit. The screenshot run renders every mode light and dark and fails on
+any console error, so it doubles as the render smoke (about 40 s; the full
+suite with interaction tests stays in `run.py`). On failure the commit is
+aborted, the reason goes to stderr and the details to `test/out/pre-commit.log`
+and `test/out/report.md`. Activate the hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Skip it for one commit with `git commit --no-verify` or `EVCC_SKIP_HOOK=1`.
+
+## Continuous integration
+
+`.github/workflows/tests.yaml` runs on every pull request, on pushes to `main`,
+nightly and on demand, in three jobs:
+
+| Job | What it does |
+|---|---|
+| Test suite (chromium, webkit) | Matrix over both engines: `npm run build` and a check that the committed `dist/evcc-card.js` equals the build (a stale bundle fails), syntax check, `test/run.py --browser <engine>` with Playwright's bundled browser (the unit tests run inside it, node is already set up for the build); `report.md` becomes the job summary, `test/out` is uploaded as an artifact per engine |
+| README screenshots up to date | Renders all screenshots in a `debian:bookworm-slim` container with the same Chromium and font packages as the dev container, and compares them with `images/` via `test/compare_images.py` (tolerance 0.5 % differing pixels). Fails when a card change was committed without regenerating the images. Text rendering differs between distributions by a few pixels per line, so an Ubuntu runner cannot be used for this job |
+| Entities exist in ha-evcc | `test/check_ha_evcc.py --clone` against the latest marq24/ha-evcc; the nightly run catches renamed entities in new integration releases |
+
+## Requirements
+
+The dev container image (`mkshb/homelab`, `hass-production/sidecar`) ships everything
+below, so a rebuilt pod is ready without any setup: the toolchain survives the pod
+recreation that every Home Assistant update triggers, which a manual install into
+the container overlay does not.
+
+`test/setup.sh` is the fallback for a plain container and the repair on an older
+image. It checks every item first and installs only what is missing (idempotent,
+needs sudo, a second when nothing is missing). `PLAYWRIGHT_BROWSERS_PATH` decides
+where the browsers live; the image puts them in `/opt/ms-playwright`.
+
+- Python 3 with `playwright` and `pillow` (`pip install playwright pillow`)
+- Chromium: `/usr/bin/chromium` (Debian: `apt install chromium fonts-dejavu-core fonts-roboto fonts-noto-color-emoji`)
+  or Playwright's own (`python3 -m playwright install chromium`). `EVCC_CHROMIUM=<path>` picks
+  a binary, `EVCC_CHROMIUM=bundled` forces the Playwright one (what CI uses).
+  `fonts-noto-color-emoji` matters for the screenshots: the plan button carries an emoji,
+  without an emoji font it renders as a placeholder box
+- WebKit: `python3 -m playwright install --with-deps webkit` (about 180 system packages on
+  Debian; `test/setup.sh` runs it). Debian 12/13 and Ubuntu 22.04/24.04 are supported
+- Node.js 18+ with npm: `npm ci` installs Rollup, `npm run build` bundles `src/` into
+  `dist/evcc-card.js` (what the harness loads), `node --check dist/evcc-card.js` is the
+  syntax check (`package.json` declares `"type": "module"`, so the file is parsed as ESM)
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `harness.html` | Loads `dist/evcc-card.js` (run `npm run build` after editing `src/`), builds the mock hass, mounts one card. Query params: `mode`, `config` (JSON), `dark`, `w` (width px), `lang`, plus the fixture variants below |
+| `mock-hass.js` | Minimal `hass`: `states`, `language`, `localize`, `callWS` (entity registry, the `evcc_intg` commands and `recorder/statistics_during_period`), `callService` (recorded, simple writes mirrored into `states`) |
+| `fixtures/states.json` | Entity states, keyed by entity id |
+| `fixtures/entity_registry.json` | Registry entries of the `evcc_intg` platform (what `config/entity_registry/list` returns, slimmed) |
+| `fixtures/ws/*.json` | Responses of the ha-evcc WebSocket data API: `capabilities`, `sessions`, `forecast_{grid,solar,planner}`, `plan_preview`. Timestamps are re-based to "now" by the mock |
+| `screenshots.py` | All README screenshots from the harness: one light/dark pair per mode (`images/<mode>-{light,dark}.png`, the card element at 470 px) plus the `slider-input` crop. `--only <name>` for a single pair |
+| `run.py` | Playwright runner: serves the repo root over HTTP, drives the harness, and runs the unit tests through node |
+| `unit/*.test.mjs` | Unit tests for `src/utils/`, run by node's test runner (see above) |
+| `compare_images.py` | Compares a fresh render with the committed `images/` (used by CI) |
+| `check_ha_evcc.py` | Entity contract check against ha-evcc (see below) |
+
+## Fixtures
+
+The fixtures are a snapshot of a real ha-evcc setup with two loadpoints
+(`openwb`, a heating loadpoint `wp`), two vehicles, a home battery and a price
+tariff. They contain device names only, no credentials.
+
+To refresh them from a running instance, evaluate this template in
+*Developer tools → Template* and save the result as `fixtures/states.json`
+(then convert the list to an object keyed by `entity_id`):
+
+```jinja
+{% set ns = namespace(out=[]) %}
+{% for s in states if s.domain in ['sensor','binary_sensor','button','number','select','switch']
+                   and s.entity_id.split('.')[1].startswith('evcc_') %}
+  {% set ns.out = ns.out + [{'entity_id': s.entity_id, 'state': s.state, 'attributes': s.attributes,
+                             'last_changed': s.last_changed.isoformat(), 'last_updated': s.last_updated.isoformat()}] %}
+{% endfor %}
+{{ ns.out | to_json }}
+```
+
+The registry fixture comes from `.storage/core.entity_registry` filtered to
+`platform == "evcc_intg"`, keeping `entity_id`, `platform`, `config_entry_id`,
+`disabled_by`, `unique_id` and `original_name`.
+
+### Fixture variants
+
+One captured snapshot cannot hold every setup, so the harness derives variants
+from it. Each is a query parameter, and `open_card()` in `run.py` takes the
+matching keyword:
+
+| Parameter | Keyword | Effect |
+|---|---|---|
+| `set=<id>:<state>,...` | `set={...}` | Override entity states |
+| `attrs=<json>` | `attrs={...}` | Override entity attributes (JSON, because values may contain any character) |
+| `disable=<id>,...` | `disable=[...]` | Mark registry entries `disabled_by` and drop their state, as HA does for entities disabled by default |
+| `rename=<from>:<to>` | `rename=(from, to)` | Rename the entity prefix everywhere, for multi-instance setups |
+| `ws=0` | `ws=False` | No ha-evcc WebSocket data API, so the entity and recorder fallbacks run |
+| `tariff=co2` | `tariff="co2"` | The data API reports a co2 signal instead of prices: `smartCostType: "co2"`, no currency, and the rate values are replaced by a fixed daily emission curve (180..420 g/kWh, lowest around midday) |
+| `wsname=<text>` | `wsname="…"` | Put this text into every name the data API reports: the `loadpoint` and `vehicle` of each session and the currency. Used by the `escaping` group |
+| `second=<json>` | `second={...}` | Clone the fixture as a second ha-evcc config entry, `{prefix, entryId, first}`. ha-evcc builds the entity prefix from the entry title, so two instances always mean two prefixes and two entry ids; `first` puts the clone ahead of the original in the registry |
+
+`recorder/statistics_during_period` is answered by the mock as well, generated
+over the window the card asks for so the series always ends at "now", and
+derived from the bucket index so two runs produce the same chart. That is what
+the `stats_fallback` group renders its chart from.
+
+### WebSocket data API fixtures
+
+The `evcc_intg/*` commands are served from `fixtures/ws/`, so the stats mode
+runs its sessions path and the plan preview works. `?ws=0` on the harness (or
+`ws=False` in `open_card`) disables them and exercises the entity/recorder
+fallbacks instead.
+
+The fixtures are the raw evcc API responses, read-only, wrapped the way
+ha-evcc's `evcc_card_websocket.py` returns them:
+
+| Fixture | Source | Wrapping |
+|---|---|---|
+| `sessions.json` | `GET /api/sessions` | `{ "sessions": [...] }` |
+| `forecast_<kind>.json` | `GET /api/tariff/<kind>` | `{ "kind", "rates": [...], "smartCostType": "price", "currency": "€" }` |
+| `plan_preview.json` | `GET /api/loadpoints/1/plan/static/preview/soc/80/<rfc3339>` | response + `smartCostType`, `currency` |
+| `capabilities.json` | hand-written | `{ "version", "commands": ["forecast", "sessions", "plan_preview"] }` |
+
+Forecast rates are shifted at load time so the first slot starts at the
+current hour. The plan preview is derived per request: the charging window
+takes the fixture's `duration`, ends at the requested target time and its slots
+are cut from the shifted grid forecast, the way evcc's static preview places a
+plan. Sessions keep their real dates (the month scope of the stats mode
+therefore shows data only while the capture month is the current month).
